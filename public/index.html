@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload M3U</title>
+</head>
+<body>
+    <h2>Upload M3U File or Enter URL</h2>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <label>MAC ID:</label>
+        <input type="text" name="macId" required><br><br>
+
+        <label>M3U File:</label>
+        <input type="file" name="m3uFile"><br><br>
+
+        <label>or M3U URL:</label>
+        <input type="text" name="m3uUrl"><br><br>
+
+        <button type="submit">Submit</button>
+    </form>
+
+    <hr>
+    <h3>Fetch Stored File/URL</h3>
+    <input type="text" id="fetchMacId" placeholder="Enter MAC ID">
+    <button onclick="fetchM3U()">Get M3U</button>
+    <p id="result"></p>
+
+    <script>
+        function fetchM3U() {
+            const macId = document.getElementById("fetchMacId").value;
+            fetch(`/get-m3u/${macId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById("result").innerText = "Not found!";
+                    } else {
+                        document.getElementById("result").innerHTML = `<a href="${data.link}" target="_blank">${data.link}</a>`;
+                    }
+                })
+                .catch(err => console.error(err));
+        }
+    </script>
+</body>
+</html>
