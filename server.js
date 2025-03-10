@@ -21,6 +21,21 @@ app.use(express.json());
 app.use(cors());
 app.use("/uploads", express.static(UPLOADS_DIR)); // Serve uploaded files
 
+// Function to get the local IP address dynamically
+function getLocalIPAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name in interfaces) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        return iface.address; // Returns the first non-internal IPv4 address
+      }
+    }
+  }
+  return "127.0.0.1"; // Fallback to localhost if no IP found
+}
+
+const SERVER_IP = getLocalIPAddress(); // Get the server's IP address
+
 // Configure file storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -38,7 +53,7 @@ app.post("/upload", upload.single("m3uFile"), (req, res) => {
 
   if (!macId) return res.status(400).json({ error: "MAC ID is required" });
 
-  storedData[macId] = filePath ? `http://localhost:${PORT}${filePath}` : m3uUrl;
+  storedData[macId] = filePath ? `http://${SERVER_IP}:${PORT}${filePath}` : m3uUrl;
   fs.writeFileSync(DATA_FILE, JSON.stringify(storedData, null, 2));
 
   res.json({ message: "M3U File/URL stored successfully!", link: storedData[macId] });
@@ -76,4 +91,4 @@ app.get("/get-mac-address", (req, res) => {
 });
 
 // Start Server
-app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running at http://${SERVER_IP}:${PORT}`));
