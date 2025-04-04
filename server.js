@@ -5,84 +5,104 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const https = require("https");
 
+// **Server Configuration**
 const app = express();
 const PORT = 3000;
+const HTTPS_PORT = 3443; // HTTPS Port
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 const DATA_FILE = path.join(__dirname, "data.json");
+const PUBLIC_DIR = path.join(__dirname, "public");
 
-// Ensure uploads directory exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+// **Ensure Required Directories Exist**
+[UPLOADS_DIR, PUBLIC_DIR].forEach((dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
 
+// **Middleware**
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(cors());
-app.use("/uploads", express.static(UPLOADS_DIR)); // Serve uploaded files
+app.use(cors({ origin: "*" })); // Allow all origins
 
-// Function to get the local IP address dynamically
+// **Serve Static Files**
+app.use("/uploads", express.static(UPLOADS_DIR));
+app.use(express.static(PUBLIC_DIR, { 
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".js")) {
+      res.setHeader("Content-Type", "application/javascript");
+    }
+  }
+}));
+
+// **Get Local IP Address**
 function getLocalIPAddress() {
   const interfaces = os.networkInterfaces();
   for (const name in interfaces) {
     for (const iface of interfaces[name]) {
       if (iface.family === "IPv4" && !iface.internal) {
-        return iface.address; // Returns the first non-internal IPv4 address
+        return iface.address;
       }
     }
   }
-  return "127.0.0.1"; // Fallback to localhost if no IP found
+  return "127.0.0.1";
 }
 
-const SERVER_IP = getLocalIPAddress(); // Get the server's IP address
+const SERVER_IP = getLocalIPAddress();
 
-// Configure file storage
+// **Configure Multer for File Uploads**
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const upload = multer({ storage });
 
-// Load existing data
+// **Load Stored Data**
 let storedData = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE)) : {};
 
-// 🟢 **POST API: Upload M3U File or URL**
+// **🟢 POST: Upload M3U File or URL**
 app.post("/upload", upload.single("m3uFile"), (req, res) => {
-  const { macId, m3uUrl } = req.body;
-  let filePath = req.file ? `/uploads/${req.file.filename}` : null;
+  try {
+    const { macId, m3uUrl } = req.body;
+    if (!macId) return res.status(400).json({ error: "MAC ID is required" });
 
-  if (!macId) return res.status(400).json({ error: "MAC ID is required" });
-
-  storedData[macId] = filePath ? `http://${SERVER_IP}:${PORT}${filePath}` : m3uUrl;
-  fs.writeFileSync(DATA_FILE, JSON.stringify(storedData, null, 2));
-
-  res.json({ message: "M3U File/URL stored successfully!", link: storedData[macId] });
-});
-
-// 🔵 **GET API: Retrieve M3U File or URL by MAC ID**
-app.get("/get-m3u/:macId", (req, res) => {
-  const { macId } = req.params;
-  if (storedData[macId]) {
-    res.json({ macId, link: storedData[macId] });
-  } else {
-    res.status(404).json({ error: "MAC ID not found" });
+    let filePath = req.file ? `/uploads/${req.file.filename}` : null;
+    storedData[macId] = filePath ? `http://${SERVER_IP}:${PORT}${filePath}` : m3uUrl;
+    
+    fs.writeFileSync(DATA_FILE, JSON.stringify(storedData, null, 2));
+    res.json({ message: "M3U File/URL stored successfully!", link: storedData[macId] });
+  } catch (error) {
+    console.error("Upload Error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// 🔵 **GET API: Retrieve All MAC IDs**
-app.get("/get-mac-ids", (req, res) => {
-  const macIds = Object.keys(storedData);
-  res.json({ macIds });
+// **🔵 GET: Retrieve M3U File or URL by MAC ID**
+app.get("/get-m3u/:macId", (req, res) => {
+  try {
+    const { macId } = req.params;
+    if (storedData[macId]) {
+      res.json({ macId, link: storedData[macId] });
+    } else {
+      res.status(404).json({ error: "MAC ID not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-// 🔵 **GET API: Get MAC Address of Requesting Device**
+// **🔵 GET: Retrieve All MAC IDs**
+app.get("/get-mac-ids", (req, res) => {
+  res.json({ macIds: Object.keys(storedData) });
+});
+
+// **🔵 GET: Get MAC Address of Requesting Device**
 app.get("/get-mac-address", (req, res) => {
   try {
-    const networkInterfaces = os.networkInterfaces();
-    const macAddresses = Object.values(networkInterfaces)
+    const macAddresses = Object.values(os.networkInterfaces())
       .flat()
-      .filter(interface => interface.mac !== "00:00:00:00:00:00")
-      .map(interface => interface.mac.toLowerCase());
+      .filter(iface => iface.mac && iface.mac !== "00:00:00:00:00:00")
+      .map(iface => iface.mac.toLowerCase());
 
     res.json({ macAddress: macAddresses[0] || "No valid MAC address found" });
   } catch (error) {
@@ -90,5 +110,29 @@ app.get("/get-mac-address", (req, res) => {
   }
 });
 
-// Start Server
-app.listen(PORT, () => console.log(`Server running at http://${SERVER_IP}:${PORT}`));
+// **HTTPS Setup (Self-Signed Certificate)**
+const keyPath = path.join(__dirname, "server.key");
+const certPath = path.join(__dirname, "server.cert");
+
+// **Generate Self-Signed Certificate If Not Exists**
+if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+  console.log("Generating SSL Certificate...");
+  const { execSync } = require("child_process");
+  execSync(
+    `openssl req -x509 -newkey rsa:2048 -keyout ${keyPath} -out ${certPath} -days 365 -nodes -subj "/CN=localhost"`,
+    { stdio: "inherit" }
+  );
+}
+
+// **Create HTTPS Server**
+const httpsOptions = {
+  key: fs.readFileSync(keyPath),
+  cert: fs.readFileSync(certPath),
+};
+
+https.createServer(httpsOptions, app).listen(HTTPS_PORT, () => {
+  console.log(`🔒 HTTPS Server running at https://${SERVER_IP}:${HTTPS_PORT}`);
+});
+
+// **Start HTTP Server**
+app.listen(PORT, () => console.log(`🌍 HTTP Server running at http://${SERVER_IP}:${PORT}`));
