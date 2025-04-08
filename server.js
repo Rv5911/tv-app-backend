@@ -64,15 +64,29 @@ let storedData = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE
 app.post("/upload", upload.single("m3uFile"), (req, res) => {
   try {
     const { macId, m3uUrl } = req.body;
+    console.log("Received MAC ID:", macId);
+    console.log("Received m3uUrl:", m3uUrl);
+    console.log("Uploaded File:", req.file);
+
     if (!macId) return res.status(400).json({ error: "MAC ID is required" });
 
-    let filePath = req.file ? `/uploads/${req.file.filename}` : null;
-    storedData[macId] = filePath ? `http://${SERVER_IP}:${PORT}${filePath}` : m3uUrl;
-    
+    let filePath = req.file ? `http://${SERVER_IP}:${PORT}/uploads/${req.file.filename}` : null;
+    let entry = filePath || m3uUrl;
+
+    if (!entry) {
+      return res.status(400).json({ error: "Either M3U file or URL is required" });
+    }
+
+    if (!storedData[macId]) {
+      storedData[macId] = [];
+    }
+
+    storedData[macId].push(entry);
+
     fs.writeFileSync(DATA_FILE, JSON.stringify(storedData, null, 2));
-    res.json({ message: "M3U File/URL stored successfully!", link: storedData[macId] });
+    res.json({ message: "M3U File/URL stored successfully!", links: storedData[macId] });
   } catch (error) {
-    console.error("Upload Error:", error);
+    console.error("Upload Error:", error); // 🔴 This will show what went wrong
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -82,7 +96,7 @@ app.get("/get-m3u/:macId", (req, res) => {
   try {
     const { macId } = req.params;
     if (storedData[macId]) {
-      res.json({ macId, link: storedData[macId] });
+      res.json({ macId, links: storedData[macId] });
     } else {
       res.status(404).json({ error: "MAC ID not found" });
     }
@@ -90,7 +104,6 @@ app.get("/get-m3u/:macId", (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 // **🔵 GET: Retrieve All MAC IDs**
 app.get("/get-mac-ids", (req, res) => {
   res.json({ macIds: Object.keys(storedData) });
