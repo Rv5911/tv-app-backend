@@ -1,45 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload M3U</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upload M3U</title>
 </head>
 <body>
-    <h2>Upload M3U File or Enter URL</h2>
-    <form id="uploadForm" action="http://localhost:3000/upload" method="POST" enctype="multipart/form-data">
-        <label>MAC ID:</label>
-        <input type="text" name="macId" required><br><br>
+  <h2>Upload M3U File or Enter URL</h2>
+  <form id="uploadForm" action="http://localhost:3000/upload" method="POST" enctype="multipart/form-data">
+    <label>MAC ID:</label>
+    <input type="text" name="macId" required /><br /><br />
 
-        <label>M3U File:</label>
-        <input type="file" name="m3uFile"><br><br>
+    <label>Username:</label>
+    <input type="text" name="username" /><br /><br />
 
-        <label>or M3U URL:</label>
-        <input type="text" name="m3uUrl"><br><br>
+    <label>M3U File:</label>
+    <input type="file" name="m3uFile" /><br /><br />
 
-        <button type="submit">Submit</button>
-    </form>
+    <label>or M3U URL:</label>
+    <input type="text" name="m3uUrl" /><br /><br />
 
-    <hr>
-    <h3>Fetch Stored File/URL</h3>
-    <input type="text" id="fetchMacId" placeholder="Enter MAC ID">
-    <button onclick="fetchM3U()">Get M3U</button>
-    <p id="result"></p>
+    <button type="submit">Submit</button>
+  </form>
 
-    <script>
-        function fetchM3U() {
-            const macId = document.getElementById("fetchMacId").value;
-            fetch(`/get-m3u/${macId}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        document.getElementById("result").innerText = "Not found!";
-                    } else {
-                        document.getElementById("result").innerHTML = `<a href="${data.link}" target="_blank">${data.link}</a>`;
-                    }
-                })
-                .catch(err => console.error(err));
-        }
-    </script>
+  <hr />
+  <h3>Fetch Stored File/URL</h3>
+  <input type="text" id="fetchMacId" placeholder="Enter MAC ID" />
+  <button onclick="fetchM3U()">Get M3U</button>
+
+  <ul id="result"></ul>
+
+  <script>
+    function fetchM3U() {
+      const macId = document.getElementById("fetchMacId").value;
+      const resultList = document.getElementById("result");
+      resultList.innerHTML = "";
+
+      fetch(`http://localhost:3000/get-m3u/${macId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            resultList.innerHTML = "<li>Not found!</li>";
+          } else {
+            data.links.forEach(link => {
+              const li = document.createElement("li");
+              li.innerHTML = `<strong>User:</strong> ${link.username || "N/A"}<br />
+                              <a href="${link.url}" target="_blank">${link.url}</a>`;
+              resultList.appendChild(li);
+            });
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          resultList.innerHTML = "<li>Error fetching data</li>";
+        });
+    }
+  </script>
 </body>
 </html>

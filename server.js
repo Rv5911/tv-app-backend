@@ -7,27 +7,27 @@ const path = require("path");
 const os = require("os");
 const https = require("https");
 
-// **Server Configuration**
+// Server Configuration
 const app = express();
 const PORT = 3000;
-const HTTPS_PORT = 3443; // HTTPS Port
+const HTTPS_PORT = 3443;
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 const DATA_FILE = path.join(__dirname, "data.json");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-// **Ensure Required Directories Exist**
+// Ensure Required Directories Exist
 [UPLOADS_DIR, PUBLIC_DIR].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// **Middleware**
+// Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(cors({ origin: "*" })); // Allow all origins
+app.use(cors({ origin: "*" }));
 
-// **Serve Static Files**
+// Serve Static Files
 app.use("/uploads", express.static(UPLOADS_DIR));
-app.use(express.static(PUBLIC_DIR, { 
+app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".js")) {
       res.setHeader("Content-Type", "application/javascript");
@@ -35,7 +35,7 @@ app.use(express.static(PUBLIC_DIR, {
   }
 }));
 
-// **Get Local IP Address**
+// Get Local IP Address
 function getLocalIPAddress() {
   const interfaces = os.networkInterfaces();
   for (const name in interfaces) {
@@ -50,48 +50,39 @@ function getLocalIPAddress() {
 
 const SERVER_IP = getLocalIPAddress();
 
-// **Configure Multer for File Uploads**
+// Configure Multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const upload = multer({ storage });
 
-// **Load Stored Data**
+// Load Stored Data
 let storedData = fs.existsSync(DATA_FILE) ? JSON.parse(fs.readFileSync(DATA_FILE)) : {};
 
-// **🟢 POST: Upload M3U File or URL**
+// 🟢 POST: Upload M3U File or URL
 app.post("/upload", upload.single("m3uFile"), (req, res) => {
   try {
-    const { macId, m3uUrl } = req.body;
-    console.log("Received MAC ID:", macId);
-    console.log("Received m3uUrl:", m3uUrl);
-    console.log("Uploaded File:", req.file);
-
+    const { macId, m3uUrl, username } = req.body;
     if (!macId) return res.status(400).json({ error: "MAC ID is required" });
 
-    let filePath = req.file ? `http://${SERVER_IP}:${PORT}/uploads/${req.file.filename}` : null;
-    let entry = filePath || m3uUrl;
+    const filePath = req.file ? `http://${SERVER_IP}:${PORT}/uploads/${req.file.filename}` : null;
+    const entry = filePath || m3uUrl;
+    if (!entry) return res.status(400).json({ error: "Either M3U file or URL is required" });
 
-    if (!entry) {
-      return res.status(400).json({ error: "Either M3U file or URL is required" });
-    }
+    if (!storedData[macId]) storedData[macId] = [];
 
-    if (!storedData[macId]) {
-      storedData[macId] = [];
-    }
-
-    storedData[macId].push(entry);
-
+    storedData[macId].push({ url: entry, username: username || "" });
     fs.writeFileSync(DATA_FILE, JSON.stringify(storedData, null, 2));
+
     res.json({ message: "M3U File/URL stored successfully!", links: storedData[macId] });
   } catch (error) {
-    console.error("Upload Error:", error); // 🔴 This will show what went wrong
+    console.error("Upload Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// **🔵 GET: Retrieve M3U File or URL by MAC ID**
+// 🔵 GET: Retrieve M3U File or URL by MAC ID
 app.get("/get-m3u/:macId", (req, res) => {
   try {
     const { macId } = req.params;
@@ -104,12 +95,13 @@ app.get("/get-m3u/:macId", (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-// **🔵 GET: Retrieve All MAC IDs**
+
+// 🔵 GET: Retrieve All MAC IDs
 app.get("/get-mac-ids", (req, res) => {
   res.json({ macIds: Object.keys(storedData) });
 });
 
-// **🔵 GET: Get MAC Address of Requesting Device**
+// 🔵 GET: Get MAC Address of Requesting Device
 app.get("/get-mac-address", (req, res) => {
   try {
     const macAddresses = Object.values(os.networkInterfaces())
@@ -123,11 +115,11 @@ app.get("/get-mac-address", (req, res) => {
   }
 });
 
-// **HTTPS Setup (Self-Signed Certificate)**
+// HTTPS Setup
 const keyPath = path.join(__dirname, "server.key");
 const certPath = path.join(__dirname, "server.cert");
 
-// **Generate Self-Signed Certificate If Not Exists**
+// Generate SSL Certificate If Not Exists
 if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
   console.log("Generating SSL Certificate...");
   const { execSync } = require("child_process");
@@ -137,7 +129,7 @@ if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
   );
 }
 
-// **Create HTTPS Server**
+// Create HTTPS Server
 const httpsOptions = {
   key: fs.readFileSync(keyPath),
   cert: fs.readFileSync(certPath),
@@ -147,5 +139,5 @@ https.createServer(httpsOptions, app).listen(HTTPS_PORT, () => {
   console.log(`🔒 HTTPS Server running at https://${SERVER_IP}:${HTTPS_PORT}`);
 });
 
-// **Start HTTP Server**
+// Start HTTP Server
 app.listen(PORT, () => console.log(`🌍 HTTP Server running at http://${SERVER_IP}:${PORT}`));
